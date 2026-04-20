@@ -1,0 +1,84 @@
+---
+- name: Deploy Lab4 HTTP service
+  hosts: lab4
+  become: yes
+  vars:
+    service_name: lab4-service
+    service_port: 8000
+    service_user: www-data
+    service_group: www-data
+    service_dir: /opt/lab4-service
+    html_dir: "{{ service_dir }}/html"
+
+  tasks:
+    - name: Install required packages
+      apt:
+        name:
+          - python3
+          - curl
+        state: present
+        update_cache: yes
+
+    - name: Create service directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ service_user }}"
+        group: "{{ service_group }}"
+        mode: '0755'
+      loop:
+        - "{{ service_dir }}"
+        - "{{ html_dir }}"
+
+    - name: Deploy index.html
+      copy:
+        src: index.html
+        dest: "{{ html_dir }}/index.html"
+        owner: "{{ service_user }}"
+        group: "{{ service_group }}"
+        mode: '0644'
+
+    - name: Copy service script
+      copy:
+        src: service.sh
+        dest: "{{ service_dir }}/service.sh"
+        owner: "{{ service_user }}"
+        group: "{{ service_group }}"
+        mode: '0755'
+
+    - name: Create systemd service file
+      copy:
+        src: lab4-service.service
+        dest: "/etc/systemd/system/{{ service_name }}.service"
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart {{ service_name }}
+
+    - name: Enable and start service
+      systemd:
+        name: "{{ service_name }}"
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+    - name: Check if service is healthy
+      uri:
+        url: "http://127.0.0.1:{{ service_port }}/"
+        status_code: 200
+        timeout: 5
+      register: healthcheck_result
+      retries: 5
+      delay: 2
+      until: healthcheck_result.status == 200
+
+    - name: Display healthcheck result
+      debug:
+        msg: "Service healthcheck passed with status {{ healthcheck_result.status }}"
+
+  handlers:
+    - name: restart {{ service_name }}
+      systemd:
+        name: "{{ service_name }}"
+        state: restarted
+        daemon_reload: yes
